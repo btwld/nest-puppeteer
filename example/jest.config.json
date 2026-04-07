@@ -1,0 +1,22 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testRegex": ".*\\.spec\\.ts$",
+  "transform": {
+    "^.+\\.ts$": ["@swc/jest"]
+  },
+  "testEnvironment": "node",
+  "testTimeout": 60000,
+  "moduleDirectories": ["node_modules"],
+  "moduleNameMapper": {
+    "^@nestjs/common(.*)$": "<rootDir>/node_modules/@nestjs/common$1",
+    "^@nestjs/core(.*)$": "<rootDir>/node_modules/@nestjs/core$1",
+    "^@nestjs/swagger(.*)$": "<rootDir>/node_modules/@nestjs/swagger$1",
+    "^@nestjs/testing(.*)$": "<rootDir>/node_modules/@nestjs/testing$1",
+    "^@nestjs/platform-express(.*)$": "<rootDir>/node_modules/@nestjs/platform-express$1",
+    "^rxjs(.*)$": "<rootDir>/node_modules/rxjs$1",
+    "^puppeteer$": "<rootDir>/node_modules/puppeteer",
+    "^class-validator$": "<rootDir>/node_modules/class-validator",
+    "^class-transformer$": "<rootDir>/node_modules/class-transformer"
+  }
+}
