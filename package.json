@@ -1,6 +1,6 @@
 {
   "name": "@bitwild/nest-puppeteer",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "Puppeteer (Headless Chrome) provider for NestJS with Cloudflare Browser Rendering-style API",
   "keywords": [
     "browser",
