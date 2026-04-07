@@ -144,6 +144,11 @@ export class ContentBrowserModule {
             transform: true,
             whitelist: true,
             forbidNonWhitelisted: false,
+            skipUndefinedProperties: false,
+            transformOptions: {
+              enableImplicitConversion: true,
+              exposeDefaultValues: true,
+            },
           }),
         });
       }
