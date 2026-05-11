@@ -34,17 +34,38 @@ export class PuppeteerModule {
       isGlobal?: boolean;
       rest?: PuppeteerRestOptions;
       defaultAi?: CustomAiConfig;
+      fontsDir?: string;
+      fontAliases?: Record<string, string | string[]>;
+      fontAliasResolver?: (family: string) => string | string[] | undefined;
     },
     instanceName?: string,
   ): DynamicModule {
-    const { isGlobal, rest, defaultAi, ...launchOptions } = options ?? {};
+    const {
+      isGlobal,
+      rest,
+      defaultAi,
+      fontsDir,
+      fontAliases,
+      fontAliasResolver,
+      ...launchOptions
+    } = options ?? {};
     const effectiveLaunchOptions =
       Object.keys(launchOptions).length > 0 ? launchOptions : undefined;
 
     return {
       module: PuppeteerModule,
       global: isGlobal,
-      imports: [PuppeteerCoreModule.forRoot(effectiveLaunchOptions, instanceName, rest, defaultAi)],
+      imports: [
+        PuppeteerCoreModule.forRoot(
+          effectiveLaunchOptions,
+          instanceName,
+          rest,
+          defaultAi,
+          fontsDir,
+          fontAliases,
+          fontAliasResolver,
+        ),
+      ],
     };
   }
 

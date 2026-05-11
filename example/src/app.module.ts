@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import { Module } from "@nestjs/common";
 import {
   PuppeteerModule,
@@ -10,6 +12,8 @@ import {
     PuppeteerModule.forRoot({
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      fontsDir: join(__dirname, "..", "test-fonts"),
+      fontAliases: { TestSans: "Test Sans" },
       rest: {
         prefix: "browser-rendering",
         features: [

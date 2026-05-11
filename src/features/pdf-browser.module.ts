@@ -46,6 +46,12 @@ export interface PdfBrowserForRootOptions extends PdfBrowserModuleOptions {
   /** Puppeteer launch options (only for standalone use) */
   launchOptions?: LaunchOptions;
   isGlobal?: boolean;
+  /** Absolute path to a directory of font files. See `PuppeteerModuleOptions.fontsDir`. */
+  fontsDir?: string;
+  /** See `PuppeteerModuleOptions.fontAliases`. */
+  fontAliases?: Record<string, string | string[]>;
+  /** See `PuppeteerModuleOptions.fontAliasResolver`. */
+  fontAliasResolver?: (family: string) => string | string[] | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -134,13 +140,27 @@ export class PdfBrowserModule {
    * })
    */
   static forRoot(options: PdfBrowserForRootOptions = {}): DynamicModule {
-    const { launchOptions, isGlobal, ...registerOptions } = options;
+    const {
+      launchOptions,
+      isGlobal,
+      fontsDir,
+      fontAliases,
+      fontAliasResolver,
+      ...registerOptions
+    } = options;
     const built = PdfBrowserModule.buildProviders(registerOptions, true);
 
     return {
       module: PdfBrowserModule,
       global: isGlobal,
-      imports: [PuppeteerModule.forRoot(launchOptions)],
+      imports: [
+        PuppeteerModule.forRoot({
+          ...(launchOptions ?? {}),
+          fontsDir,
+          fontAliases,
+          fontAliasResolver,
+        }),
+      ],
       controllers: built.controllers,
       providers: built.providers,
       exports: [PdfBrowserService],

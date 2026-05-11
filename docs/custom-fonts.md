@@ -1,10 +1,124 @@
 # Custom Fonts
 
-Puppeteer renders pages using the fonts available in the browser. Custom fonts can be loaded via CSS, embedded as base64, or installed on the system.
+Puppeteer renders pages using the fonts available in the browser. The library can resolve custom fonts from a local directory automatically, or you can load them manually via CSS, base64 embedding, or system installation.
 
-## waitForFonts
+## `fontsDir` (recommended)
 
-All methods support `waitForFonts: true`, which calls `document.fonts.ready` before capturing. This ensures fonts have finished downloading and rendering.
+Point `PuppeteerModule` at a folder of font files at boot. On startup the library scans the folder, base64-encodes every file once, and on every HTML render prepends a `<style>` block of `@font-face` declarations so the HTML can reference these families as if the fonts were installed.
+
+```ts
+import { join } from 'node:path';
+import { PuppeteerModule } from '@bitwild/nest-puppeteer';
+
+PuppeteerModule.forRoot({
+  fontsDir: join(process.cwd(), 'assets', 'fonts'),
+  headless: true,
+  rest: { prefix: 'api', features: ['pdf', 'screenshot'] },
+});
+```
+
+Then any HTML sent to the renderer can just reference the family name:
+
+```ts
+const pdf = await puppeteerService.pdf({
+  html: `<p style="font-family:AvenirPro;font-weight:300;font-style:italic">Hi</p>`,
+  waitForFonts: true,
+  format: 'a4',
+});
+```
+
+### Family-name aliases
+
+The parsed family name comes straight from the filename (or parent directory). If your HTML references the same font under a different name — for example `'Avenir Pro'` (with a space) instead of the folder name `AvenirPro` — declare an alias and the library emits a duplicate `@font-face` for each name:
+
+```ts
+PuppeteerModule.forRoot({
+  fontsDir: join(process.cwd(), 'assets', 'fonts'),
+  fontAliases: {
+    AvenirPro: 'Avenir Pro',                // single extra name
+    OpenSans: ['Open Sans', 'open-sans'],   // multiple extra names
+  },
+});
+```
+
+For programmatic rules (CamelCase splitting, locale-aware mapping, lookup tables) provide a resolver — it composes with `fontAliases`:
+
+```ts
+PuppeteerModule.forRoot({
+  fontsDir: join(process.cwd(), 'assets', 'fonts'),
+  fontAliasResolver: (family) =>
+    family.replace(/([a-z])([A-Z])/g, '$1 $2'),
+});
+```
+
+The resolver receives the parsed family name and returns a string, an array of strings, or `undefined`. The final set of names for each variant is `{parsed, ...fontAliases[parsed], ...resolver(parsed)}`. The library does no implicit name munging — what you configure is exactly what gets emitted.
+
+### Supported directory layouts
+
+Both layouts work side by side. The library reads the **variant identifier** from either the filename (flat) or the parent directory name (nested).
+
+**Flat:**
+
+```
+fonts/
+├── AvenirPro-Light.woff2
+├── AvenirPro-LightOblique.woff2
+├── AvenirPro-Medium.woff2
+└── AvenirPro-Heavy.woff2
+```
+
+**Nested (one folder per variant, file basename free):**
+
+```
+fonts/
+├── AvenirPro35Light/
+│   ├── font.woff
+│   └── font.woff2
+├── AvenirPro55Oblique/
+│   └── font.woff2
+├── AvenirPro65Medium/
+│   └── font.woff2
+└── AvenirPro85Heavy/
+    └── font.woff2
+```
+
+When both `.woff` and `.woff2` files exist for the same variant, they are merged into a single `@font-face` and the woff2 source is emitted first.
+
+### Variant identifier parsing
+
+The variant identifier is split into family + weight + style by these rules:
+
+1. Strip any trailing `Italic` or `Oblique` (case-insensitive) → `style: italic`.
+2. Strip any digits anywhere in the remaining string (foundry weight numbers like Avenir's `35`/`55`/`65`/`85` are not standard CSS weights).
+3. If a hyphen is present, split on the last hyphen: left side is the family, right side is the weight word.
+4. Otherwise, look for a known weight word ending the string (`Thin`, `ExtraLight`, `Light`, `Book`, `Regular`/`Normal`/`Roman`, `Medium`, `SemiBold`/`DemiBold`/`Demi`, `Bold`, `ExtraBold`, `Black`, `Heavy`) — that suffix becomes the weight; everything before it becomes the family.
+5. If nothing is found, weight defaults to `400` (Regular).
+
+Weight word → CSS weight: `Thin`→100, `ExtraLight`→200, `Light`→300, `Book`→350, `Regular`/`Normal`/`Roman`→400, `Medium`→500, `SemiBold`/`Demi`→600, `Bold`→700, `ExtraBold`→800, `Black`/`Heavy`→900.
+
+### Supported file formats
+
+`.woff2`, `.woff`, `.ttf`, `.otf`.
+
+### Caching
+
+The scan happens once at module init. Encoded fonts stay in memory for the process lifetime. Add or remove font files → restart the app.
+
+### Tips
+
+- Pair with `waitForFonts: true` on the render call to guarantee fonts are decoded before the snapshot.
+- `fontsDir` only affects HTML renders. URL renders go untouched (target pages handle their own fonts).
+- Fonts auto-apply to **every** HTML render. The cost is one small inline `<style>` block; HTML that doesn't use these families pays nothing.
+
+---
+
+## Manual options
+
+These remain available as one-off escape hatches when `fontsDir` is not suitable.
+
+### `waitForFonts`
+
+All methods support `waitForFonts: true`, which calls `document.fonts.ready` before capturing.
 
 ```ts
 const pdf = await puppeteerService.pdf({
@@ -14,9 +128,7 @@ const pdf = await puppeteerService.pdf({
 });
 ```
 
-> **Always enable `waitForFonts` when using custom fonts.** Without it, Puppeteer may capture the page before fonts load, resulting in fallback font rendering.
-
-## Loading Fonts
+> Always enable `waitForFonts` when using custom fonts. Without it, Puppeteer may capture the page before fonts load.
 
 ### CSS `@font-face` (remote URL)
 
@@ -31,18 +143,10 @@ const pdf = await puppeteerService.pdf({
             src: url('https://example.com/fonts/CustomFont.woff2') format('woff2');
             font-weight: 400;
           }
-          @font-face {
-            font-family: 'CustomFont';
-            src: url('https://example.com/fonts/CustomFont-Bold.woff2') format('woff2');
-            font-weight: 700;
-          }
           body { font-family: 'CustomFont', sans-serif; }
         </style>
       </head>
-      <body>
-        <h1>Bold heading</h1>
-        <p>Regular text</p>
-      </body>
+      <body>...</body>
     </html>
   `,
   waitForFonts: true,
@@ -71,8 +175,6 @@ const pdf = await puppeteerService.pdf({
 
 ### Base64-embedded font (no network required)
 
-Useful for air-gapped environments or guaranteed font availability:
-
 ```ts
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -99,9 +201,7 @@ const pdf = await puppeteerService.pdf({
 });
 ```
 
-### Inject font into an existing page via `addStyleTag`
-
-When rendering a URL you don't control, override fonts with `addStyleTag`:
+### Inject font into an existing URL page via `addStyleTag`
 
 ```ts
 const pdf = await puppeteerService.pdf({
@@ -128,15 +228,10 @@ Install fonts at the OS level so they're available to all pages without CSS chan
 
 ```dockerfile
 RUN apt-get update && apt-get install -y \
-    # Core Latin fonts
     fonts-liberation \
-    # CJK (Chinese, Japanese, Korean)
     fonts-noto-cjk \
-    # Broad Unicode coverage
     fonts-noto-core \
-    # Emoji
     fonts-noto-color-emoji \
-    # Microsoft-compatible (Arial, Times, Courier)
     fonts-freefont-ttf \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
@@ -150,58 +245,38 @@ COPY ./fonts/*.woff2 /usr/local/share/fonts/
 RUN fc-cache -fv
 ```
 
-System fonts are immediately available:
-
-```ts
-const pdf = await puppeteerService.pdf({
-  html: '<body style="font-family: MyCustomFont">Hello</body>',
-  format: 'a4',
-  // No waitForFonts needed — system fonts load synchronously
-});
-```
-
-## Feature Module Defaults
-
-Set `waitForFonts` as a default for all calls:
-
-```ts
-PdfBrowserModule.register({
-  defaults: {
-    format: 'a4',
-    printBackground: true,
-  },
-  prefix: 'api/pdf',
-})
-```
-
-> Note: `waitForFonts` is a common option, so it's set on the request body, not in `defaults` (which only covers feature-specific options like `format`). To always wait for fonts, create a wrapper service or use `gotoOptions: { waitUntil: 'networkidle0' }` as a default, which also waits for font downloads.
+System fonts are immediately available, no `waitForFonts` needed.
 
 ## Troubleshooting
 
 ### Fonts not rendering
 
-1. **Enable `waitForFonts: true`** — most common fix
-2. **Check `gotoOptions.waitUntil`** — use `'networkidle0'` to wait for all network requests (including font downloads) to finish
-3. **Check resource filtering** — if using `rejectResourceTypes`, make sure `'font'` is not in the list
-4. **Verify font URL** — remote font URLs must be accessible from the server running Puppeteer
+1. Enable `waitForFonts: true`.
+2. With `fontsDir`, confirm the module logs `Loaded N font variant(s) ...` at startup. If you see `No font files found`, double-check the path and supported extensions.
+3. Verify the family name in your HTML matches the parsed family from the filename/directory name.
+4. If using `rejectResourceTypes`, make sure `'font'` is not in the list.
 
-### Garbled text (CJK, Arabic, etc.)
+### Garbled text (CJK, Arabic, emoji, etc.)
 
-Install the appropriate Noto font package in your Docker image:
+Install the appropriate Noto packages in your Docker image so Chromium has glyph coverage for the script you need:
 
 ```dockerfile
 RUN apt-get update && apt-get install -y \
-    fonts-noto-cjk \          # Chinese/Japanese/Korean
-    fonts-noto-extra \         # Additional scripts
-    fonts-noto-color-emoji \   # Emoji
-    --no-install-recommends
+    fonts-noto-cjk \          # Chinese / Japanese / Korean
+    fonts-noto-extra \        # Additional scripts (Arabic, Hebrew, Thai, Devanagari, ...)
+    fonts-noto-color-emoji \  # Color emoji
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 ```
+
+These are independent of `fontsDir`: they cover characters that have no glyph in your custom font and would otherwise render as tofu (□). Keep both — `fontsDir` for brand fonts, Noto packages for special-character fallback.
 
 ### Font renders differently than expected
 
 Puppeteer uses the actual browser rendering engine. Differences from local development may be caused by:
+
 - Missing font weights (only regular installed, bold missing)
-- Different font fallback chains between OS/Docker
+- Different font fallback chains between OS / Docker
 - Sub-pixel rendering differences in headless mode
 
-Fix: embed the exact font files you need via `@font-face` with `waitForFonts: true`.
+Fix: ship the exact weights you need via `fontsDir` (or the manual `@font-face` route), and pair with `waitForFonts: true`.
