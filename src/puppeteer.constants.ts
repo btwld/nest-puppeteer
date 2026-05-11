@@ -6,6 +6,7 @@ export const PUPPETEER_INSTANCE_NAME = "PuppeteerInstanceName";
 export const PUPPETEER_MODULE_OPTIONS = "PuppeteerModuleOptions";
 export const PUPPETEER_REST_OPTIONS = "PuppeteerRestOptions";
 export const PUPPETEER_DEFAULT_AI = "PuppeteerDefaultAi";
+export const PUPPETEER_FONT_CONFIG = "PuppeteerFontConfig";
 export const FEATURE_KEY = "puppeteer:feature";
 
 export const ALL_FEATURES: PuppeteerFeature[] = [

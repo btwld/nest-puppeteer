@@ -23,6 +23,7 @@ import {
   DEFAULT_CHROME_LAUNCH_OPTIONS,
   DEFAULT_PUPPETEER_INSTANCE_NAME,
   PUPPETEER_DEFAULT_AI,
+  PUPPETEER_FONT_CONFIG,
   PUPPETEER_INSTANCE_NAME,
   PUPPETEER_MODULE_OPTIONS,
   PUPPETEER_REST_OPTIONS,
@@ -34,6 +35,14 @@ import { CrawlService } from "./puppeteer-crawl.service.js";
 import { BrowserRenderingExceptionFilter } from "./puppeteer-exception.filter.js";
 import { PuppeteerFeatureGuard } from "./puppeteer-feature.guard.js";
 import { BrowserRenderingInterceptor } from "./puppeteer-response.interceptor.js";
+import { type FontConfig, FontRegistry } from "./font-registry.service.js";
+
+const buildFontConfig = (
+  dir?: string,
+  aliases?: Record<string, string | string[]>,
+  aliasResolver?: (family: string) => string | string[] | undefined,
+): FontConfig | null =>
+  dir || aliases || aliasResolver ? { dir, aliases, aliasResolver } : null;
 
 function mergeLaunchOptions(userOptions?: LaunchOptions): LaunchOptions {
   if (!userOptions) {
@@ -138,6 +147,9 @@ export class PuppeteerCoreModule implements OnApplicationShutdown, OnModuleDestr
     instanceName: string = DEFAULT_PUPPETEER_INSTANCE_NAME,
     restOptions?: PuppeteerRestOptions,
     defaultAi?: import("./interfaces/json-options.interface.js").CustomAiConfig,
+    fontsDir?: string,
+    fontAliases?: Record<string, string | string[]>,
+    fontAliasResolver?: (family: string) => string | string[] | undefined,
   ): DynamicModule {
     const mergedLaunchOptions = mergeLaunchOptions(launchOptions);
 
@@ -149,6 +161,11 @@ export class PuppeteerCoreModule implements OnApplicationShutdown, OnModuleDestr
     const defaultAiProvider = {
       provide: PUPPETEER_DEFAULT_AI,
       useValue: defaultAi ?? null,
+    };
+
+    const fontConfigProvider = {
+      provide: PUPPETEER_FONT_CONFIG,
+      useValue: buildFontConfig(fontsDir, fontAliases, fontAliasResolver),
     };
 
     const browserProvider = {
@@ -182,13 +199,15 @@ export class PuppeteerCoreModule implements OnApplicationShutdown, OnModuleDestr
       providers: [
         instanceNameProvider,
         defaultAiProvider,
+        fontConfigProvider,
         browserProvider,
         contextProvider,
         pageProvider,
+        FontRegistry,
         PuppeteerService,
         ...(rest?.providers ?? []),
       ],
-      exports: [browserProvider, contextProvider, pageProvider, PuppeteerService],
+      exports: [browserProvider, contextProvider, pageProvider, PuppeteerService, FontRegistry],
     };
   }
 
@@ -203,6 +222,13 @@ export class PuppeteerCoreModule implements OnApplicationShutdown, OnModuleDestr
     const defaultAiProvider = {
       provide: PUPPETEER_DEFAULT_AI,
       useFactory: (opts: PuppeteerModuleOptions) => opts.defaultAi ?? null,
+      inject: [PUPPETEER_MODULE_OPTIONS],
+    };
+
+    const fontConfigProvider = {
+      provide: PUPPETEER_FONT_CONFIG,
+      useFactory: (opts: PuppeteerModuleOptions) =>
+        buildFontConfig(opts.fontsDir, opts.fontAliases, opts.fontAliasResolver),
       inject: [PUPPETEER_MODULE_OPTIONS],
     };
 
@@ -241,13 +267,15 @@ export class PuppeteerCoreModule implements OnApplicationShutdown, OnModuleDestr
         ...asyncProviders,
         instanceNameProvider,
         defaultAiProvider,
+        fontConfigProvider,
         browserProvider,
         contextProvider,
         pageProvider,
+        FontRegistry,
         PuppeteerService,
         ...(rest?.providers ?? []),
       ],
-      exports: [browserProvider, contextProvider, pageProvider, PuppeteerService],
+      exports: [browserProvider, contextProvider, pageProvider, PuppeteerService, FontRegistry],
     };
   }
 

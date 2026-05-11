@@ -112,10 +112,18 @@ export {
   DEFAULT_PUPPETEER_INSTANCE_NAME,
   FEATURE_KEY,
   PUPPETEER_DEFAULT_AI,
+  PUPPETEER_FONT_CONFIG,
   PUPPETEER_INSTANCE_NAME,
   PUPPETEER_MODULE_OPTIONS,
   PUPPETEER_REST_OPTIONS,
 } from "./puppeteer.constants.js";
+
+// Font registry
+export {
+  type FontConfig,
+  FontRegistry,
+  parseFontVariant,
+} from "./font-registry.service.js";
 
 // Controller
 export { createPuppeteerController } from "./puppeteer.controller.js";

@@ -12,6 +12,7 @@ import type { ScreenshotOptions } from "./interfaces/screenshot-options.interfac
 import type { SnapshotOptions, SnapshotResult } from "./interfaces/snapshot-options.interface.js";
 import { PUPPETEER_DEFAULT_AI } from "./puppeteer.constants.js";
 import { InjectBrowser } from "./puppeteer.decorators.js";
+import { FontRegistry } from "./font-registry.service.js";
 
 @Injectable()
 export class PuppeteerService {
@@ -22,6 +23,8 @@ export class PuppeteerService {
     @Optional()
     @Inject(PUPPETEER_DEFAULT_AI)
     private readonly defaultAi?: CustomAiConfig,
+    @Optional()
+    private readonly fontRegistry?: FontRegistry,
   ) {}
 
   /**
@@ -325,7 +328,11 @@ export class PuppeteerService {
       if (options.url) {
         await page.goto(options.url, options.gotoOptions);
       } else if (options.html) {
-        await page.setContent(options.html, options.gotoOptions);
+        const html =
+          this.fontRegistry && !this.fontRegistry.isEmpty()
+            ? this.fontRegistry.getStyleBlock() + options.html
+            : options.html;
+        await page.setContent(html, options.gotoOptions);
       } else {
         throw new Error('Either "url" or "html" must be provided');
       }
