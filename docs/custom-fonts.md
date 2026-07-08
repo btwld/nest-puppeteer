@@ -110,6 +110,31 @@ The scan happens once at module init. Encoded fonts stay in memory for the proce
 - `fontsDir` only affects HTML renders. URL renders go untouched (target pages handle their own fonts).
 - Fonts auto-apply to **every** HTML render. The cost is one small inline `<style>` block; HTML that doesn't use these families pays nothing.
 
+### PDF header/footer templates
+
+Chromium prints `headerTemplate`/`footerTemplate` in a **separate document** that cannot fetch resources — external URLs never load there, and even `data:` URI fonts declared only in the template lose the race against paint. A web font renders in a template only when **both** hold:
+
+1. the `@font-face` is declared inline **inside the template**, and
+2. the same face is **already active** in the main page's renderer.
+
+With `fontsDir` configured, the library satisfies both automatically on HTML renders: when `displayHeaderFooter` is set and a header or footer template is present, the `@font-face` rules of every registry family the template references (case-insensitive name match, parsed family or alias) are injected into that template, and the matching faces are pre-activated in the main page via `document.fonts.load()`. Templates that reference no registry family are left untouched. Your template can simply reference the family:
+
+```ts
+const pdf = await puppeteerService.pdf({
+  html: reportHtml,
+  waitForFonts: true,
+  displayHeaderFooter: true,
+  headerTemplate: `<div style="font-family:'Avenir Pro';font-size:12px;width:100%;text-align:center;">Report</div>`,
+  margin: { top: '120px', bottom: '80px' },
+});
+```
+
+Caveats:
+
+- Applies to **HTML renders only** (`html` option). URL renders go untouched, so registry fonts are not available in their templates — install fonts at the OS level for that case (see below).
+- The template must use a family name the registry emits (parsed family or a configured alias).
+- Chromium ignores templates entirely unless `displayHeaderFooter: true` and the margins leave room for them.
+
 ---
 
 ## Manual options

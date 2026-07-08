@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 
 import { Inject, Injectable, Logger, type OnModuleInit, Optional } from "@nestjs/common";
@@ -95,24 +95,17 @@ const extractStyle = (identifier: string): { core: string; style: FontStyle } =>
     : { core: identifier, style: "normal" };
 };
 
-const findTrailingWeight = (
-  value: string,
-): { weight: string; index: number } | null => {
+const findTrailingWeight = (value: string): { weight: string; index: number } | null => {
   const lower = value.toLowerCase();
-  return Object.keys(WEIGHTS).reduce<{ weight: string; index: number } | null>(
-    (best, weight) => {
-      const w = weight.toLowerCase();
-      if (!lower.endsWith(w)) return best;
-      if (best && best.weight.length >= w.length) return best;
-      return { weight, index: value.length - w.length };
-    },
-    null,
-  );
+  return Object.keys(WEIGHTS).reduce<{ weight: string; index: number } | null>((best, weight) => {
+    const w = weight.toLowerCase();
+    if (!lower.endsWith(w)) return best;
+    if (best && best.weight.length >= w.length) return best;
+    return { weight, index: value.length - w.length };
+  }, null);
 };
 
-const splitFamilyAndModifier = (
-  value: string,
-): { family: string; modifier: string } => {
+const splitFamilyAndModifier = (value: string): { family: string; modifier: string } => {
   const dashIdx = value.lastIndexOf("-");
   if (dashIdx !== -1) {
     return { family: value.slice(0, dashIdx), modifier: value.slice(dashIdx + 1) };
@@ -144,20 +137,14 @@ export const parseFontVariant = (
 
 const buildSrcList = (sources: ReadonlyArray<FontSource>): string =>
   [...sources]
-    .sort(
-      (a, b) =>
-        (FORMAT_PRIORITY[a.format] ?? 99) - (FORMAT_PRIORITY[b.format] ?? 99),
-    )
+    .sort((a, b) => (FORMAT_PRIORITY[a.format] ?? 99) - (FORMAT_PRIORITY[b.format] ?? 99))
     .map((s) => `url(${s.dataUrl}) format('${s.format}')`)
     .join(",");
 
 const toArray = (value: string | string[] | undefined): readonly string[] =>
   value === undefined ? [] : typeof value === "string" ? [value] : value;
 
-const buildFontFace = (
-  variant: FontVariant,
-  aliases: readonly string[],
-): string => {
+const buildFontFace = (variant: FontVariant, aliases: readonly string[]): string => {
   const src = buildSrcList(variant.sources);
   return aliases
     .map(
@@ -167,10 +154,27 @@ const buildFontFace = (
     .join("");
 };
 
+const buildLoadSpec = (variant: FontVariant, name: string): string =>
+  `${variant.style === "italic" ? "italic " : ""}${variant.weight} 16px '${name}'`;
+
+const wrapStyle = (css: string): string =>
+  css ? `<style data-puppeteer-fonts>${css}</style>` : "";
+
+interface FontFamilyEntry {
+  /** All names this family is emitted under (parsed family + aliases). */
+  readonly names: readonly string[];
+  /** Concatenated @font-face rules for every variant of the family. */
+  readonly css: string;
+  /** document.fonts.load() specs for every variant × name. */
+  readonly specs: readonly string[];
+}
+
 @Injectable()
 export class FontRegistry implements OnModuleInit {
   private readonly logger = new Logger(FontRegistry.name);
   private styleBlock = "";
+  private loadSpecs: readonly string[] = [];
+  private families: readonly FontFamilyEntry[] = [];
 
   constructor(
     @Optional()
@@ -193,10 +197,23 @@ export class FontRegistry implements OnModuleInit {
       return;
     }
 
-    const faces = Array.from(variants.values(), (variant) =>
-      buildFontFace(variant, this.resolveAliases(variant.family)),
-    ).join("");
-    this.styleBlock = `<style data-puppeteer-fonts>${faces}</style>`;
+    const byFamily = new Map<string, FontVariant[]>();
+    for (const variant of variants.values()) {
+      const list = byFamily.get(variant.family);
+      if (list) list.push(variant);
+      else byFamily.set(variant.family, [variant]);
+    }
+
+    this.families = Array.from(byFamily, ([family, list]) => {
+      const names = this.resolveAliases(family);
+      return {
+        names,
+        css: list.map((variant) => buildFontFace(variant, names)).join(""),
+        specs: list.flatMap((variant) => names.map((name) => buildLoadSpec(variant, name))),
+      };
+    });
+    this.styleBlock = wrapStyle(this.families.map((f) => f.css).join(""));
+    this.loadSpecs = this.families.flatMap((f) => f.specs);
 
     const families = new Set(Array.from(variants.values(), (v) => v.family));
     this.logger.log(
@@ -218,6 +235,40 @@ export class FontRegistry implements OnModuleInit {
 
   getStyleBlock(): string {
     return this.styleBlock;
+  }
+
+  /**
+   * CSS font shorthand specs (one per variant × alias) for
+   * `document.fonts.load()`. Activating every face in the main page is what
+   * makes the faces available to Chromium's print header/footer documents,
+   * which cannot load font resources themselves.
+   */
+  getFontLoadSpecs(): readonly string[] {
+    return this.loadSpecs;
+  }
+
+  /**
+   * Style block containing only the families whose emitted names appear in
+   * the given HTML (case-insensitive). Empty string when none match.
+   */
+  getStyleBlockFor(html: string): string {
+    return wrapStyle(
+      this.matchFamilies(html)
+        .map((f) => f.css)
+        .join(""),
+    );
+  }
+
+  /** Load specs (see `getFontLoadSpecs`) scoped to families the HTML references. */
+  getFontLoadSpecsFor(html: string): readonly string[] {
+    return this.matchFamilies(html).flatMap((f) => f.specs);
+  }
+
+  private matchFamilies(html: string): readonly FontFamilyEntry[] {
+    const haystack = html.toLowerCase();
+    return this.families.filter((f) =>
+      f.names.some((name) => haystack.includes(name.toLowerCase())),
+    );
   }
 
   private collectFiles(dir: string): FontFile[] {
@@ -244,17 +295,13 @@ export class FontRegistry implements OnModuleInit {
       const nested = tryOr(() => readdirSync(fullPath)) ?? [];
       return nested.flatMap((name) => {
         const ext = extname(name).toLowerCase();
-        return isFontExt(ext)
-          ? [{ path: join(fullPath, name), identifier: entry, ext }]
-          : [];
+        return isFontExt(ext) ? [{ path: join(fullPath, name), identifier: entry, ext }] : [];
       });
     }
 
     if (!stat.isFile()) return [];
     const ext = extname(entry).toLowerCase();
-    return isFontExt(ext)
-      ? [{ path: fullPath, identifier: basename(entry, ext), ext }]
-      : [];
+    return isFontExt(ext) ? [{ path: fullPath, identifier: basename(entry, ext), ext }] : [];
   }
 
   private addFile(file: FontFile, variants: Map<string, FontVariant>): void {

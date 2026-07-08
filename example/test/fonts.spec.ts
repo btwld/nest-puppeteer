@@ -89,6 +89,34 @@ describe("custom fonts via fontsDir", () => {
       const standalone = new FontRegistry();
       expect(standalone.resolveAliases("TestSans")).toEqual(["TestSans"]);
     });
+
+    it("exposes document.fonts.load() specs for every variant × alias", () => {
+      const registry = app.get(FontRegistry);
+      const specs = registry.getFontLoadSpecs();
+      // 4 variants × 2 names (TestSans + Test Sans alias)
+      expect(specs).toHaveLength(8);
+      expect(specs).toContain("300 16px 'TestSans'");
+      expect(specs).toContain("italic 400 16px 'TestSans'");
+      expect(specs).toContain("500 16px 'Test Sans'");
+      expect(specs).toContain("800 16px 'Test Sans'");
+    });
+
+    it("scopes style block and load specs to families the HTML references", () => {
+      const registry = app.get(FontRegistry);
+
+      const byAlias = registry.getStyleBlockFor("<span style=\"font-family:'Test Sans'\">x</span>");
+      expect(byAlias).toContain("@font-face");
+      expect(byAlias).toContain("data-puppeteer-fonts");
+
+      // case-insensitive family match
+      expect(registry.getStyleBlockFor("font-family:testsans")).toContain("@font-face");
+
+      // unreferenced families are not emitted
+      expect(registry.getStyleBlockFor("<span style='font-family:Arial'>x</span>")).toBe("");
+      expect(registry.getFontLoadSpecsFor("font-family:Arial")).toHaveLength(0);
+
+      expect(registry.getFontLoadSpecsFor("font-family:TestSans")).toHaveLength(8);
+    });
   });
 
   describe("HTML interception", () => {
@@ -111,6 +139,49 @@ describe("custom fonts via fontsDir", () => {
         .expect(200);
 
       expect(res.headers["content-type"]).toContain("application/pdf");
+      expect(Buffer.from(res.body.slice(0, 4)).toString("ascii")).toBe("%PDF");
+    });
+  });
+
+  describe("header/footer templates", () => {
+    // Chromium prints header/footer templates in a separate document that
+    // cannot fetch resources. The service injects the registry @font-face
+    // block into each template and pre-activates every face in the main page
+    // so the templates can render registry fonts.
+    it("returns a valid PDF when templates use a registry font", async () => {
+      const res = await request(app.getHttpServer())
+        .post("/api/pdf")
+        .send({
+          html: "<html><body><p style='font-family:TestSans;font-weight:300'>Body</p></body></html>",
+          waitForFonts: true,
+          displayHeaderFooter: true,
+          headerTemplate:
+            "<div style=\"font-family:'Test Sans',sans-serif;font-weight:800;font-size:12px;width:100%;text-align:center;\">Header in Test Sans</div>",
+          footerTemplate:
+            "<div style=\"font-family:'Test Sans',sans-serif;font-size:10px;width:100%;text-align:center;\">Page <span class='pageNumber'></span></div>",
+          margin: { top: "120px", bottom: "80px" },
+        })
+        .expect(200);
+
+      expect(res.headers["content-type"]).toContain("application/pdf");
+      expect(Buffer.from(res.body.slice(0, 4)).toString("ascii")).toBe("%PDF");
+    });
+
+    it("still renders when user HTML carries broken @font-face sources", async () => {
+      // Relative url() sources cannot resolve under setContent; activation
+      // must tolerate their load() rejections (Promise.allSettled).
+      const res = await request(app.getHttpServer())
+        .post("/api/pdf")
+        .send({
+          html: "<html><head><style>@font-face{font-family:TestSans;src:url(./nope/font.woff2) format('woff2');font-weight:300}</style></head><body><p style='font-family:TestSans;font-weight:300'>Body</p></body></html>",
+          waitForFonts: true,
+          displayHeaderFooter: true,
+          headerTemplate:
+            "<div style=\"font-family:'TestSans',sans-serif;font-weight:300;font-size:12px;width:100%;text-align:center;\">Header</div>",
+          margin: { top: "120px", bottom: "80px" },
+        })
+        .expect(200);
+
       expect(Buffer.from(res.body.slice(0, 4)).toString("ascii")).toBe("%PDF");
     });
   });

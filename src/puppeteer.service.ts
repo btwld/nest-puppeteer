@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import type { Browser, HTTPRequest, Page } from "puppeteer";
-
+import { FontRegistry } from "./font-registry.service.js";
 import type { CommonBrowserOptions } from "./interfaces/common-options.interface.js";
 import type { ContentOptions } from "./interfaces/content-options.interface.js";
 import type { CustomAiConfig, JsonOptions } from "./interfaces/json-options.interface.js";
@@ -12,7 +12,6 @@ import type { ScreenshotOptions } from "./interfaces/screenshot-options.interfac
 import type { SnapshotOptions, SnapshotResult } from "./interfaces/snapshot-options.interface.js";
 import { PUPPETEER_DEFAULT_AI } from "./puppeteer.constants.js";
 import { InjectBrowser } from "./puppeteer.decorators.js";
-import { FontRegistry } from "./font-registry.service.js";
 
 @Injectable()
 export class PuppeteerService {
@@ -86,8 +85,6 @@ export class PuppeteerService {
     return this.withPage(options, async (page) => {
       const {
         displayHeaderFooter,
-        headerTemplate,
-        footerTemplate,
         printBackground,
         margin,
         pageRanges,
@@ -102,10 +99,12 @@ export class PuppeteerService {
         timeout,
       } = options;
 
+      const { header, footer } = await this.injectTemplateFonts(page, options);
+
       return page.pdf({
         displayHeaderFooter,
-        headerTemplate,
-        footerTemplate,
+        headerTemplate: header,
+        footerTemplate: footer,
         printBackground,
         margin,
         pageRanges,
@@ -262,6 +261,56 @@ export class PuppeteerService {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * Chromium prints header/footer templates in a separate document that
+   * cannot fetch resources (not even data: URIs in time for paint). A web
+   * font renders there only when the template declares the @font-face inline
+   * AND the same face is already active in the page's renderer. Registry
+   * fonts are data-URI declarations, so both conditions can be satisfied for
+   * HTML renders: inject the referenced families into each template and
+   * force-activate their faces in the main page. Each template gets only the
+   * families it actually references, so a template that uses no registry
+   * fonts pays nothing.
+   */
+  private async injectTemplateFonts(
+    page: Page,
+    options: PdfOptions,
+  ): Promise<{ header?: string; footer?: string }> {
+    const { headerTemplate, footerTemplate } = options;
+    const registry = this.fontRegistry;
+    const eligible =
+      registry &&
+      !registry.isEmpty() &&
+      options.html &&
+      options.displayHeaderFooter &&
+      (headerTemplate || footerTemplate);
+    if (!eligible) return { header: headerTemplate, footer: footerTemplate };
+
+    const headerBlock = headerTemplate ? registry.getStyleBlockFor(headerTemplate) : "";
+    const footerBlock = footerTemplate ? registry.getStyleBlockFor(footerTemplate) : "";
+
+    const specs = registry.getFontLoadSpecsFor(`${headerTemplate ?? ""}${footerTemplate ?? ""}`);
+    if (specs.length > 0) {
+      // allSettled: user HTML may carry its own @font-face rules whose
+      // sources fail to load (e.g. relative URLs); those rejections must not
+      // abort activation. The race bounds the wait when a same-named user
+      // face points at a hanging remote src — registry faces are data: URIs
+      // and load in milliseconds. String script avoids esbuild helper
+      // injection (see DOM_TO_MARKDOWN_SCRIPT).
+      await page.evaluate(
+        `Promise.race([
+          Promise.allSettled(${JSON.stringify(specs)}.map((s) => Promise.resolve().then(() => document.fonts.load(s)))),
+          new Promise((resolve) => setTimeout(resolve, 10000)),
+        ]).then(() => undefined)`,
+      );
+    }
+
+    return {
+      header: headerBlock ? headerBlock + headerTemplate : headerTemplate,
+      footer: footerBlock ? footerBlock + footerTemplate : footerTemplate,
+    };
+  }
 
   private async withPage<T>(
     options: CommonBrowserOptions,
