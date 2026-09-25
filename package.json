@@ -20,11 +20,11 @@
   "author": "Concepta",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/conceptadev/nest-puppeteer.git"
+    "url": "git+https://github.com/btwld/nest-puppeteer.git"
   },
-  "homepage": "https://github.com/conceptadev/nest-puppeteer#readme",
+  "homepage": "https://github.com/btwld/nest-puppeteer#readme",
   "bugs": {
-    "url": "https://github.com/conceptadev/nest-puppeteer/issues"
+    "url": "https://github.com/btwld/nest-puppeteer/issues"
   },
   "type": "module",
   "sideEffects": false,
