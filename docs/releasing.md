@@ -16,7 +16,7 @@ Then configure the trusted GitHub publisher from an authenticated npm CLI:
 
 ```bash
 npm trust github puppeteer-nest \
-  --repo conceptadev/nest-puppeteer \
+  --repo btwld/nest-puppeteer \
   --file release.yml \
   --environment release \
   --allow-publish
